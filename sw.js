@@ -1,4 +1,4 @@
-const V='stokrak-v4';
+const V='stokrak-v5';
 const LOCAL=['./','index.html','manifest.json','icon-192.png','icon-512.png'];
 const CDN=['https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js','https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'];
 self.addEventListener('install',e=>{

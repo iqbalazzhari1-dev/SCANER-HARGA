@@ -65,6 +65,9 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 #cam #cam-x{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:14px;width:48px;height:48px;padding:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:26px;line-height:1;z-index:2}
 #cam #cam-p{position:absolute;left:14px;right:14px;bottom:calc(30px + env(safe-area-inset-bottom,0px));color:#fff;text-shadow:0 1px 5px #000;z-index:2}
 #cam #shot{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(120px + env(safe-area-inset-bottom,0px));z-index:2}
+#cam-tools{position:absolute;left:0;right:0;bottom:calc(84px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;justify-content:center;z-index:2}
+#cam-tools button{min-width:56px;height:44px;padding:0 14px;border-radius:22px;border:0;background:rgba(0,0,0,.6);color:#fff;font:inherit;font-weight:700;font-size:16px}
+#cam-tools button.on{background:#fff;color:#111}
 </style>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -107,7 +110,7 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 </main>
 </div>
 
-<div id="cam" hidden><video id="vid" playsinline muted></video><div id="frame"></div><button id="cam-x" aria-label="Tutup kamera">✕</button><p id="cam-p">Arahkan kamera ke barcode</p></div>
+<div id="cam" hidden><video id="vid" playsinline muted></video><div id="frame"></div><button id="cam-x" aria-label="Tutup kamera">✕</button><p id="cam-p">Arahkan kamera ke barcode</p><div id="cam-tools"></div></div>
 <div id="out" hidden><p>File Excel tidak bisa dibagikan dari perangkat ini. Salin data ini (dipisah koma) lalu tempel di komputer.</p><textarea id="out-t" readonly></textarea><button id="out-c">Salin</button><button id="out-s">Bagikan</button><button id="out-x">Tutup</button></div>
 <input id="shot-in" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true" style="position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0">
 <div id="toast" role="status"></div>
@@ -315,12 +318,12 @@ function deliver(id,v){
 function closeCam(){
   running=false;clearTimeout(tm);
   if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;
-  $('#vid').srcObject=null;$('#cam').hidden=true;
+  $('#vid').srcObject=null;$('#cam').hidden=true;$('#cam-tools').textContent='';
 }
 function loop(id){
   const v=$('#vid'),det='BarcodeDetector' in window?new BarcodeDetector():null;
   const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
-  let n=0;
+  let n=0,m=0;const cv2=document.createElement('canvas'),cx2=cv2.getContext('2d',{willReadFrequently:true});
   const step=async()=>{
     if(!running||target!==id)return;
     let text=null;
@@ -330,6 +333,7 @@ function loop(id){
         cv.width=W;cv.height=hb;
         cx.drawImage(v,0,v.videoHeight*0.25,v.videoWidth,v.videoHeight*0.5,0,0,W,hb);
         text=scanRows(grayOf(cx,0,0,W,hb),W,hb,0,hb,2);
+        if(!text&&m++%2===0){const sy=v.videoHeight*0.3,sh=v.videoHeight*0.34,k=W<1400?2:1.4,W2=Math.round(v.videoWidth*k),H2=Math.round(sh*k);cv2.width=W2;cv2.height=H2;cx2.imageSmoothingQuality='high';cx2.drawImage(v,0,sy,v.videoWidth,sh,0,0,W2,H2);text=scanRows(grayOf(cx2,0,0,W2,H2),W2,H2,0,H2,3)}
         if(!text&&det){const r=await det.detect(v);if(r.length)text=r[0].rawValue}
         if(!text&&window.ZXing&&n++%2===0)text=zxCanvas(cv);
       }
@@ -338,6 +342,19 @@ function loop(id){
     tm=setTimeout(step,80);
   };
   step();
+}
+function setupTools(s){
+  const box=$('#cam-tools');box.textContent='';
+  const tr=s.getVideoTracks()[0];let c={};try{c=tr.getCapabilities?tr.getCapabilities():{}}catch(_){}
+  const mk=(t,fn)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>fn(b);box.appendChild(b);return b};
+  if(c.zoom&&c.zoom.max>c.zoom.min){
+    const zs=[1,2,3].map(z=>Math.min(Math.max(z,c.zoom.min),c.zoom.max)).filter((z,i,a)=>a.indexOf(z)===i);
+    const bs=[];
+    zs.forEach(z=>bs.push(mk(z+'x',async b=>{try{await tr.applyConstraints({advanced:[{zoom:z}]});bs.forEach(x=>x.classList.remove('on'));b.classList.add('on')}catch(_){}})));
+    const i=zs.includes(2)?zs.indexOf(2):zs.length-1;bs[i].click();
+  }
+  if(c.torch){let on=false;mk('\u{1F4A1}',async b=>{on=!on;try{await tr.applyConstraints({advanced:[{torch:on}]});b.classList.toggle('on',on)}catch(_){on=!on}})}
+  $('#vid').onclick=async()=>{try{if(c.focusMode&&c.focusMode.includes('single-shot')){await tr.applyConstraints({advanced:[{focusMode:'single-shot'}]});setTimeout(()=>{if(c.focusMode.includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{})},1200)}}catch(_){}};
 }
 async function scan(id){
   target=id;const cam=$('#cam'),v=$('#vid'),p=$('#cam-p');
@@ -353,7 +370,7 @@ async function scan(id){
   stream=s;v.srcObject=s;try{await v.play()}catch(e){}
   try{const tr=s.getVideoTracks()[0],c=tr.getCapabilities?tr.getCapabilities():{};
     if(c.focusMode&&c.focusMode.includes('continuous'))await tr.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(_){}
-  running=true;loop(id);
+  setupTools(s);running=true;loop(id);
 }
 async function readPhoto(file){
   let bm;

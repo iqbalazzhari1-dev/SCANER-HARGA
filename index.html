@@ -143,8 +143,8 @@ function render(k){
   if(!items.length){const d=document.createElement('div');d.className='empty';d.textContent='Belum ada data. Scan barang untuk memulai.';list.appendChild(d)}
   items.forEach((it,i)=>{
     const row=document.createElement('div');row.className='item';
-    const c=document.createElement('b');c.textContent=k==='rec'?(items.length-i)+': [ '+(it.shelf||S.rec.shelf)+' ] '+it.code:it.code;row.appendChild(c);
-    if(k==='stock'){const q=document.createElement('span');q.className='q';q.textContent=it.qty;row.appendChild(q)}
+    const c=document.createElement('b');c.textContent=k==='rec'?(items.length-i)+': [ '+(it.shelf||S.rec.shelf)+' ] '+it.code:(items.length-i)+': '+it.code+': [ QTY :'+it.qty+'] <'+(it.shelf||S.stock.shelf)+'>';row.appendChild(c);
+    
     const x=document.createElement('button');x.textContent='✕';x.setAttribute('aria-label','Hapus');
     x.onclick=()=>{items.splice(i,1);save();render(k)};row.appendChild(x);list.appendChild(row);
   });
@@ -329,17 +329,18 @@ function loop(id){
     let text=null;
     try{
       if(v.readyState>=2&&v.videoWidth){
+        if(det){try{const r=await det.detect(v);if(r.length)text=r[0].rawValue}catch(_){}}
         const W=Math.min(v.videoWidth,1280),sc=W/v.videoWidth,hb=Math.round(v.videoHeight*0.5*sc);
         cv.width=W;cv.height=hb;
         cx.drawImage(v,0,v.videoHeight*0.25,v.videoWidth,v.videoHeight*0.5,0,0,W,hb);
-        text=scanRows(grayOf(cx,0,0,W,hb),W,hb,0,hb,2);
-        if(!text&&m++%2===0){const sy=v.videoHeight*0.3,sh=v.videoHeight*0.34,k=W<1400?2:1.4,W2=Math.round(v.videoWidth*k),H2=Math.round(sh*k);cv2.width=W2;cv2.height=H2;cx2.imageSmoothingQuality='high';cx2.drawImage(v,0,sy,v.videoWidth,sh,0,0,W2,H2);text=scanRows(grayOf(cx2,0,0,W2,H2),W2,H2,0,H2,3)}
-        if(!text&&det){const r=await det.detect(v);if(r.length)text=r[0].rawValue}
-        if(!text&&window.ZXing&&n++%2===0)text=zxCanvas(cv);
+        if(!text)text=scanRows(grayOf(cx,0,0,W,hb),W,hb,0,hb,3);
+        if(!text&&m++%3===1){const sy=v.videoHeight*0.3,sh=v.videoHeight*0.34,k=W<1400?2:1.4,W2=Math.round(v.videoWidth*k),H2=Math.round(sh*k);cv2.width=W2;cv2.height=H2;cx2.imageSmoothingQuality='high';cx2.drawImage(v,0,sy,v.videoWidth,sh,0,0,W2,H2);text=scanRows(grayOf(cx2,0,0,W2,H2),W2,H2,0,H2,3)}
+        
+        if(!text&&window.ZXing&&n++%4===3)text=zxCanvas(cv);
       }
     }catch(_){}
     if(text&&running){closeCam();deliver(id,text);return}
-    tm=setTimeout(step,80);
+    tm=setTimeout(step,20);
   };
   step();
 }
@@ -360,7 +361,7 @@ async function scan(id){
   target=id;const cam=$('#cam'),v=$('#vid'),p=$('#cam-p');
   cam.hidden=false;v.hidden=false;$('#frame').hidden=false;p.textContent='Arahkan kamera ke barcode';
   let s;
-  try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false})}
+  try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:false})}
   catch(e){
     if(framed){closeCam();target=id;$('#shot-in').click();return}
     v.hidden=true;$('#frame').hidden=true;

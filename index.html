@@ -111,7 +111,7 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 </div>
 
 <div id="cam" hidden><video id="vid" playsinline muted></video><div id="frame"></div><button id="cam-x" aria-label="Tutup kamera">✕</button><p id="cam-p">Arahkan kamera ke barcode</p><div id="cam-tools"></div></div>
-<div id="out" hidden><p>File Excel tidak bisa dibagikan dari perangkat ini. Salin data ini (dipisah koma) lalu tempel di komputer.</p><textarea id="out-t" readonly></textarea><button id="out-c">Salin</button><button id="out-s">Bagikan</button><button id="out-x">Tutup</button></div>
+<div id="out" hidden><p>Salin data ini (dipisah koma) lalu tempel di komputer, atau ketuk Bagikan untuk mengirimnya sebagai file TXT.</p><textarea id="out-t" readonly></textarea><button id="out-c">Salin</button><button id="out-s">Bagikan</button><button id="out-x">Tutup</button></div>
 <input id="shot-in" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true" style="position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0">
 <div id="toast" role="status"></div>
 
@@ -215,8 +215,7 @@ async function upload(k){
     XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([['Barcode','Nama','Harga']]),'Harga');
     wb.Workbook={CalcPr:{fullCalcOnLoad:true}};
     const buf=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-    const f=new File([buf],name,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-    if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}
+    /* UPLOAD TO PC selalu menampilkan layar salin (sama di Android dan iOS) */
   }catch(e){if(e&&e.name==='AbortError')return}
   $('#out-t').dataset.name=name.replace('.xlsx','');$('#out-t').value=tsv;$('#out').hidden=false;
 }
@@ -420,6 +419,6 @@ document.querySelectorAll('[data-cam]').forEach(b=>b.onclick=()=>{
 });
 $('#cam-x').onclick=closeCam;
 </script>
-<script>if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))</script>
+<script>if('serviceWorker' in navigator){const had=!!navigator.serviceWorker.controller;addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));navigator.serviceWorker.addEventListener('controllerchange',()=>{if(had&&!window.__rl){window.__rl=1;location.reload()}})}</script>
 </body>
 </html>

@@ -81,8 +81,8 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 <header><button id="back" hidden aria-label="Kembali">‹</button><h1 id="title">Menu</h1><button hidden aria-hidden="true">·</button></header>
 <main>
 <section id="menu" class="menu">
-<button data-go="stock">4. STOCK TAKE SHELF</button>
-<button data-go="rec">5. SHELF RECORD</button>
+<button data-go="stock">1. STOCK TAKE SHELF</button>
+<button data-go="rec">2. SHELF RECORD</button>
 </section>
 
 <section id="stock" hidden>
@@ -220,11 +220,12 @@ async function upload(k){
   $('#out-t').dataset.name=name.replace('.xlsx','');$('#out-t').value=tsv;$('#out').hidden=false;
 }
 $('#s-up').onclick=()=>upload('stock');$('#r-up').onclick=()=>upload('rec');
+function stamp(){const d=new Date(),p=n=>String(n).padStart(2,'0');return p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+'_'+p(d.getHours())+'-'+p(d.getMinutes())}
 function rowsOf(k){const d=S[k];return k==='stock'?[['rack','sku','qty'],...d.items.map(i=>[i.shelf||d.shelf,i.code,i.qty])]:[['rack','barcode'],...d.items.slice().reverse().map(i=>[i.shelf||d.shelf,i.code])]}
 async function shareTxt(k){
   const d=S[k];if(!d.items.length){toast('Belum ada data');return}
   const t=rowsOf(k).map(r=>r.join(',')).join('\n');
-  const name=(k==='stock'?'stock-take-':'shelf-record-')+(d.shelf||'shelf')+'.txt';
+  const name=stamp()+'.txt';
   try{const f=new File([t],name,{type:'text/plain'});
     if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}
     if(navigator.share){await navigator.share({title:name,text:t});return}
@@ -233,7 +234,7 @@ async function shareTxt(k){
 }
 $('#s-txt').onclick=()=>shareTxt('stock');$('#r-txt').onclick=()=>shareTxt('rec');
 $('#out-x').onclick=()=>$('#out').hidden=true;
-$('#out-s').onclick=async()=>{const t=$('#out-t').value,name=($('#out-t').dataset.name||'stok-rak')+'.txt';try{const f=new File([t],name,{type:'text/plain'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}if(navigator.share){await navigator.share({title:'Stok Rak',text:t});return}}catch(e){if(e&&e.name==='AbortError')return}toast('Menu bagikan tidak tersedia di sini. Pakai aplikasi yang sudah di-install dari Netlify.',4500)};
+$('#out-s').onclick=async()=>{const t=$('#out-t').value,name=stamp()+'.txt';try{const f=new File([t],name,{type:'text/plain'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}if(navigator.share){await navigator.share({title:'Stok Rak',text:t});return}}catch(e){if(e&&e.name==='AbortError')return}toast('Menu bagikan tidak tersedia di sini. Pakai aplikasi yang sudah di-install dari Netlify.',4500)};
 $('#out-c').onclick=async()=>{
   const t=$('#out-t');t.select();
   try{await navigator.clipboard.writeText(t.value);toast('Tersalin')}catch(e){try{document.execCommand('copy');toast('Tersalin')}catch(_){toast('Salin manual dari kotak teks')}}

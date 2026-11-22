@@ -78,7 +78,7 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 </head>
 <body>
 <div id="app">
-<header><button id="back" hidden aria-label="Kembali">‹</button><h1 id="title">Menu</h1><button hidden aria-hidden="true">·</button></header>
+<header><button id="back" hidden aria-label="Kembali">‹</button><h1 id="title">Menu</h1><button id="gear" aria-label="Pengaturan"></button></header>
 <main>
 <section id="menu" class="menu">
 <button data-go="stock">1. STOCK TAKE SHELF</button>
@@ -107,6 +107,14 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 <div class="list" id="r-list"></div>
 <div class="foot"><button class="txt" id="r-txt">BAGIKAN FILE TXT</button><button class="clr" id="r-clear">CLEAR ALL</button><button class="up" id="r-up">UPLOAD TO PC</button></div>
 </section>
+
+<section id="set" hidden>
+<label for="st-name">Nama (ID perangkat) :</label>
+<div class="fld"><input id="st-name" autocomplete="off" autocapitalize="characters" placeholder="Ex : GK4006"></div>
+<p class="sum">Nama ini ditambahkan di awal nama file TXT dan sebagai baris pertama isi file, dengan format NAMA,tanggal,jam.</p>
+<div style="flex:1"></div>
+<div class="foot"><button class="up" id="st-save">SIMPAN</button></div>
+</section>
 </main>
 </div>
 
@@ -122,20 +130,25 @@ document.querySelectorAll('.cam').forEach(b=>b.innerHTML=ICON);
 
 let S={stock:{shelf:'',items:[]},rec:{shelf:'',items:[]}};
 try{const r=localStorage.getItem('stokrak1');if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
+if(!S.cfg)S.cfg={name:''};
 const save=()=>{try{localStorage.setItem('stokrak1',JSON.stringify(S))}catch(e){}};
 
 let tt;
 function toast(m,ms){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),ms||2200)}
 
-const TITLES={menu:'Menu',stock:'Stock Take Shelf',rec:'Shelf Record'};
+const TITLES={menu:'Menu',stock:'Stock Take Shelf',rec:'Shelf Record',set:'Pengaturan'};
 function show(v){
-  ['menu','stock','rec'].forEach(x=>$('#'+x).hidden=x!==v);
-  $('#title').textContent=TITLES[v];$('#back').hidden=v==='menu';
+  ['menu','stock','rec','set'].forEach(x=>$('#'+x).hidden=x!==v);
+  $('#title').textContent=TITLES[v];$('#back').hidden=v==='menu';$('#gear').hidden=v!=='menu';if(v==='set')$('#st-name').value=S.cfg.name||'';
   if(v==='stock'){$('#s-shelf').value=S.stock.shelf;render('stock')}
   if(v==='rec'){$('#r-shelf').value=S.rec.shelf;render('rec')}
 }
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>show(b.dataset.go));
 $('#back').onclick=()=>show('menu');
+const GEAR='<svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>';
+$('#gear').innerHTML=GEAR;$('#gear').onclick=()=>show('set');
+$('#st-name').oninput=e=>{const v=e.target.value.replace(/[\s,]/g,'').toUpperCase();if(v!==e.target.value)e.target.value=v;S.cfg.name=v;save()};
+$('#st-save').onclick=()=>{toast(S.cfg.name?'Tersimpan: '+S.cfg.name:'Nama dikosongkan');show('menu')};
 
 function render(k){
   const p=k==='stock'?'s':'r',list=$('#'+p+'-list'),items=S[k].items;
@@ -198,7 +211,7 @@ async function upload(k){
   const d=S[k];
   if(!d.items.length){toast('Belum ada data');return}
   const rows=k==='stock'?[['rack','sku','qty'],...d.items.map(i=>[i.shelf||d.shelf,i.code,i.qty])]:[['rack','barcode'],...d.items.slice().reverse().map(i=>[i.shelf||d.shelf,i.code])];
-  const tsv=rows.map(r=>r.join(',')).join('\n');
+  const tsv=headLine()+rows.map(r=>r.join(',')).join('\n');
   const name=(k==='stock'?'stock-take-':'shelf-record-')+(d.shelf||'shelf')+'.xlsx';
   try{
     if(!window.XLSX)throw new Error('xlsx');
@@ -221,11 +234,13 @@ async function upload(k){
 }
 $('#s-up').onclick=()=>upload('stock');$('#r-up').onclick=()=>upload('rec');
 function stamp(){const d=new Date(),p=n=>String(n).padStart(2,'0');return p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+'_'+p(d.getHours())+'-'+p(d.getMinutes())}
+function headLine(){const n=S.cfg&&S.cfg.name;if(!n)return '';const d=new Date(),p=x=>String(x).padStart(2,'0');return n+','+p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear()+','+p(d.getHours())+':'+p(d.getMinutes())+'\n'}
+function fname(){return (S.cfg&&S.cfg.name?S.cfg.name+'_':'')+stamp()+'.txt'}
 function rowsOf(k){const d=S[k];return k==='stock'?[['rack','sku','qty'],...d.items.map(i=>[i.shelf||d.shelf,i.code,i.qty])]:[['rack','barcode'],...d.items.slice().reverse().map(i=>[i.shelf||d.shelf,i.code])]}
 async function shareTxt(k){
   const d=S[k];if(!d.items.length){toast('Belum ada data');return}
-  const t=rowsOf(k).map(r=>r.join(',')).join('\n');
-  const name=stamp()+'.txt';
+  const t=headLine()+rowsOf(k).map(r=>r.join(',')).join('\n');
+  const name=fname();
   try{const f=new File([t],name,{type:'text/plain'});
     if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}
     if(navigator.share){await navigator.share({title:name,text:t});return}
@@ -234,7 +249,7 @@ async function shareTxt(k){
 }
 $('#s-txt').onclick=()=>shareTxt('stock');$('#r-txt').onclick=()=>shareTxt('rec');
 $('#out-x').onclick=()=>$('#out').hidden=true;
-$('#out-s').onclick=async()=>{const t=$('#out-t').value,name=stamp()+'.txt';try{const f=new File([t],name,{type:'text/plain'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}if(navigator.share){await navigator.share({title:'Stok Rak',text:t});return}}catch(e){if(e&&e.name==='AbortError')return}toast('Menu bagikan tidak tersedia di sini. Pakai aplikasi yang sudah di-install dari Netlify.',4500)};
+$('#out-s').onclick=async()=>{const t=$('#out-t').value,name=fname();try{const f=new File([t],name,{type:'text/plain'});if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}if(navigator.share){await navigator.share({title:'Stok Rak',text:t});return}}catch(e){if(e&&e.name==='AbortError')return}toast('Menu bagikan tidak tersedia di sini. Pakai aplikasi yang sudah di-install dari Netlify.',4500)};
 $('#out-c').onclick=async()=>{
   const t=$('#out-t');t.select();
   try{await navigator.clipboard.writeText(t.value);toast('Tersalin')}catch(e){try{document.execCommand('copy');toast('Tersalin')}catch(_){toast('Salin manual dari kotak teks')}}

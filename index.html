@@ -111,7 +111,7 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 <section id="set" hidden>
 <label for="st-name">Nama (ID perangkat) :</label>
 <div class="fld"><input id="st-name" autocomplete="off" autocapitalize="characters" placeholder="Ex : GK4006"></div>
-<p class="sum">Nama ini ditambahkan di awal nama file TXT dan sebagai baris pertama isi file, dengan format NAMA,tanggal,jam.</p>
+<p class="sum">Nama ini ditambahkan di awal nama file TXT. Isi file hanya berisi hasil scan.</p>
 <div style="flex:1"></div>
 <div class="foot"><button class="up" id="st-save">SIMPAN</button></div>
 </section>
@@ -211,7 +211,7 @@ async function upload(k){
   const d=S[k];
   if(!d.items.length){toast('Belum ada data');return}
   const rows=k==='stock'?[['rack','sku','qty'],...d.items.map(i=>[i.shelf||d.shelf,i.code,i.qty])]:[['rack','barcode'],...d.items.slice().reverse().map(i=>[i.shelf||d.shelf,i.code])];
-  const tsv=headLine()+rows.map(r=>r.join(',')).join('\n');
+  const tsv=rows.slice(1).map(r=>r.join(',')).join('\n');
   const name=(k==='stock'?'stock-take-':'shelf-record-')+(d.shelf||'shelf')+'.xlsx';
   try{
     if(!window.XLSX)throw new Error('xlsx');
@@ -239,7 +239,7 @@ function fname(){return (S.cfg&&S.cfg.name?S.cfg.name+'_':'')+stamp()+'.txt'}
 function rowsOf(k){const d=S[k];return k==='stock'?[['rack','sku','qty'],...d.items.map(i=>[i.shelf||d.shelf,i.code,i.qty])]:[['rack','barcode'],...d.items.slice().reverse().map(i=>[i.shelf||d.shelf,i.code])]}
 async function shareTxt(k){
   const d=S[k];if(!d.items.length){toast('Belum ada data');return}
-  const t=headLine()+rowsOf(k).map(r=>r.join(',')).join('\n');
+  const t=rowsOf(k).slice(1).map(r=>r.join(',')).join('\n');
   const name=fname();
   try{const f=new File([t],name,{type:'text/plain'});
     if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}

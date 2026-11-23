@@ -325,7 +325,8 @@ function zxCanvas(cv){
   return null;
 }
 const nap=()=>new Promise(r=>setTimeout(r,0));
-function deliver(id,v){
+function clean(v){return String(v).replace(/[\x00-\x1f\x7f]/g,'').replace(/^\][A-Za-z][0-9A-Za-z]/,'').replace(/^C1(\d{7})$/,'$1').trim()}
+function deliver(id,v){v=clean(v);
   const el=$('#'+id);el.value=v;el.dispatchEvent(new Event('input'));
   try{navigator.vibrate&&navigator.vibrate(60)}catch(_){}
   if(id==='s-code')$('#s-qty').focus();else if(id==='r-code')addRec();else if(id==='s-shelf')$('#s-code').focus();else if(id==='r-shelf')$('#r-code').focus();
@@ -428,7 +429,7 @@ $('#shot-in').onchange=async e=>{
   toast('Membaca barcode\u2026',9000);
   let text=null;try{text=await readPhoto(f)}catch(_){}
   if(!text){toast('Barcode tidak terbaca. Foto lebih terang atau lebih dekat, lalu coba lagi.',3500);return}
-  deliver(target,text);toast('Terbaca: '+text,1800);
+  deliver(target,text);toast('Terbaca: '+clean(text),1800);
 };
 document.querySelectorAll('[data-cam]').forEach(b=>b.onclick=()=>{
   scan(b.dataset.cam);

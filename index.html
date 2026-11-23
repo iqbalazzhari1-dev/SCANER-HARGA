@@ -60,6 +60,8 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 #cam{display:block;padding:0;background:#000;overflow:hidden}
 #cam #vid{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;border-radius:0;background:#000}
 #cam #vid[hidden]{display:none}
+#cam #vid{opacity:0;transition:opacity .18s}
+#cam #vid.ready{opacity:1}
 #frame{position:absolute;left:6%;right:6%;top:34%;height:24%;border:3px solid rgba(255,255,255,.9);border-radius:12px;box-shadow:0 0 0 100vmax rgba(0,0,0,.4);pointer-events:none}
 #frame[hidden]{display:none}
 #cam #cam-x{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:14px;width:48px;height:48px;padding:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:26px;line-height:1;z-index:2}
@@ -280,9 +282,9 @@ function dec128(w,i0){
       for(let i=1;i<body.length;i++){
         const v=body[i];
         if(set==='C'){if(v<100)out+=(v<10?'0':'')+v;else if(v===100)set='B';else if(v===101)set='A'}
-        else{if(v<96)out+=String.fromCharCode(32+v);else if(v===99)set='C';else if(v===100&&set==='A')set='B';else if(v===101&&set==='B')set='A'}
+        else{if(v<96)out+=(set==='A'&&v>=64)?String.fromCharCode(v-64):String.fromCharCode(32+v);else if(v===99)set='C';else if(v===100&&set==='A')set='B';else if(v===101&&set==='B')set='A'}
       }
-      return out||null;
+      return out.replace(/[\x00-\x1f]/g,'')||null;
     }
     if(!d||d[1]>2.4)return null;
     vals.push(d[0]);a+=6;
@@ -334,33 +336,39 @@ function deliver(id,v){v=clean(v);
 function closeCam(){
   running=false;clearTimeout(tm);
   if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;
-  $('#vid').srcObject=null;$('#cam').hidden=true;$('#cam-tools').textContent='';
+  $('#vid').classList.remove('ready');$('#vid').srcObject=null;$('#cam').hidden=true;$('#cam-tools').textContent='';
 }
 function loop(id){
   const v=$('#vid'),det='BarcodeDetector' in window?new BarcodeDetector():null;
   const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
-  let n=0,m=0;const cv2=document.createElement('canvas'),cx2=cv2.getContext('2d',{willReadFrequently:true});
+  const cv2=document.createElement('canvas'),cx2=cv2.getContext('2d',{willReadFrequently:true});
+  let n=0,m=0,slow=0;
   const step=async()=>{
     if(!running||target!==id)return;
-    let text=null;
+    let text=null;const t0=performance.now();
     try{
       if(v.readyState>=2&&v.videoWidth){
+        /* 1) pembaca bawaan browser: cepat, memakai resolusi penuh */
         if(det){try{const r=await det.detect(v);if(r.length)text=r[0].rawValue}catch(_){}}
-        const W=Math.min(v.videoWidth,1280),sc=W/v.videoWidth,hb=Math.round(v.videoHeight*0.5*sc);
-        cv.width=W;cv.height=hb;
-        cx.drawImage(v,0,v.videoHeight*0.25,v.videoWidth,v.videoHeight*0.5,0,0,W,hb);
-        if(!text)text=scanRows(grayOf(cx,0,0,W,hb),W,hb,0,hb,3);
-        if(!text&&m++%3===1){const sy=v.videoHeight*0.3,sh=v.videoHeight*0.34,k=W<1400?2:1.4,W2=Math.round(v.videoWidth*k),H2=Math.round(sh*k);cv2.width=W2;cv2.height=H2;cx2.imageSmoothingQuality='high';cx2.drawImage(v,0,sy,v.videoWidth,sh,0,0,W2,H2);text=scanRows(grayOf(cx2,0,0,W2,H2),W2,H2,0,H2,3)}
-        
-        if(!text&&window.ZXing&&n++%4===3)text=zxCanvas(cv);
+        /* 2) pembaca cadangan hanya pada pita bingkai, resolusi asli; dijarangkan bila HP lambat */
+        if(!text&&(slow<2||m%3===0)){
+          const VW=v.videoWidth,VH=v.videoHeight,sy=VH*0.3,sh=VH*0.34,W=Math.min(VW,2560),sc=W/VW,hb=Math.round(sh*sc);
+          cv.width=W;cv.height=hb;cx.drawImage(v,0,sy,VW,sh,0,0,W,hb);
+          text=scanRows(grayOf(cx,0,0,W,hb),W,hb,0,hb,3);
+          if(!text&&VW<1600&&m%3===1){const k=2,W2=Math.round(VW*k),H2=Math.round(sh*k);cv2.width=W2;cv2.height=H2;cx2.imageSmoothingQuality='high';cx2.drawImage(v,0,sy,VW,sh,0,0,W2,H2);text=scanRows(grayOf(cx2,0,0,W2,H2),W2,H2,0,H2,3)}
+          if(!text&&window.ZXing&&n++%4===3)text=zxCanvas(cv);
+        }
+        m++;
       }
     }catch(_){}
+    const dt=performance.now()-t0;slow=dt>120?Math.min(slow+1,5):Math.max(slow-1,0);
     if(text&&running){closeCam();deliver(id,text);return}
-    tm=setTimeout(step,20);
+    tm=setTimeout(step,dt>150?60:20);
   };
   step();
 }
 function setupTools(s){
+  let zp=null;
   const box=$('#cam-tools');box.textContent='';
   const tr=s.getVideoTracks()[0];let c={};try{c=tr.getCapabilities?tr.getCapabilities():{}}catch(_){}
   const mk=(t,fn)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>fn(b);box.appendChild(b);return b};
@@ -368,16 +376,18 @@ function setupTools(s){
     const zs=[1,2,3].map(z=>Math.min(Math.max(z,c.zoom.min),c.zoom.max)).filter((z,i,a)=>a.indexOf(z)===i);
     const bs=[];
     zs.forEach(z=>bs.push(mk(z+'x',async b=>{try{await tr.applyConstraints({advanced:[{zoom:z}]});bs.forEach(x=>x.classList.remove('on'));b.classList.add('on')}catch(_){}})));
-    const i=zs.includes(2)?zs.indexOf(2):zs.length-1;bs[i].click();
+    const i=zs.includes(2)?zs.indexOf(2):zs.length-1;zp=bs[i].onclick();
   }
   if(c.torch){let on=false;mk('\u{1F4A1}',async b=>{on=!on;try{await tr.applyConstraints({advanced:[{torch:on}]});b.classList.toggle('on',on)}catch(_){on=!on}})}
   $('#vid').onclick=async()=>{try{if(c.focusMode&&c.focusMode.includes('single-shot')){await tr.applyConstraints({advanced:[{focusMode:'single-shot'}]});setTimeout(()=>{if(c.focusMode.includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{})},1200)}}catch(_){}};
+  return zp;
 }
+function reveal(){const v=$('#vid'),go=()=>v.classList.add('ready');try{if(v.requestVideoFrameCallback){v.requestVideoFrameCallback(()=>v.requestVideoFrameCallback(go))}else setTimeout(go,300)}catch(_){go()}setTimeout(go,1200)}
 async function scan(id){
   target=id;const cam=$('#cam'),v=$('#vid'),p=$('#cam-p');
-  cam.hidden=false;v.hidden=false;$('#frame').hidden=false;p.textContent='Arahkan kamera ke barcode';
+  cam.hidden=false;v.classList.remove('ready');v.hidden=false;$('#frame').hidden=false;p.textContent='Arahkan kamera ke barcode';
   let s;
-  try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},audio:false})}
+  try{s=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:2560},height:{ideal:1440},frameRate:{ideal:30}},audio:false})}
   catch(e){
     if(framed){closeCam();target=id;$('#shot-in').click();return}
     v.hidden=true;$('#frame').hidden=true;
@@ -387,7 +397,7 @@ async function scan(id){
   stream=s;v.srcObject=s;try{await v.play()}catch(e){}
   try{const tr=s.getVideoTracks()[0],c=tr.getCapabilities?tr.getCapabilities():{};
     if(c.focusMode&&c.focusMode.includes('continuous'))await tr.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(_){}
-  setupTools(s);running=true;loop(id);
+  const zp=setupTools(s);running=true;loop(id);Promise.resolve(zp).catch(()=>{}).then(reveal);
 }
 async function readPhoto(file){
   let bm;

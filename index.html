@@ -62,6 +62,9 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 #cam #vid[hidden]{display:none}
 #cam #vid{opacity:0;transition:opacity .18s}
 #cam #vid.ready{opacity:1}
+#pv{position:absolute;left:0;top:0;width:100%;height:100%;display:none;background:#000}
+#cam.ios #pv{display:block}
+#cam.ios #vid,#cam.ios #vid.ready{position:absolute!important;left:0!important;top:0!important;inset:auto!important;width:8px!important;height:8px!important;max-width:none!important;opacity:.02!important;transform:none!important;pointer-events:none}
 #frame{position:absolute;left:6%;right:6%;top:34%;height:24%;border:3px solid rgba(255,255,255,.9);border-radius:12px;box-shadow:0 0 0 100vmax rgba(0,0,0,.4);pointer-events:none}
 #frame[hidden]{display:none}
 #cam #cam-x{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:14px;width:48px;height:48px;padding:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:26px;line-height:1;z-index:2}
@@ -120,7 +123,7 @@ label{display:block;margin:16px 0 2px;color:var(--mut)}
 </main>
 </div>
 
-<div id="cam" hidden><video id="vid" playsinline muted></video><div id="frame"></div><button id="cam-x" aria-label="Tutup kamera">✕</button><p id="cam-p">Arahkan kamera ke barcode</p><div id="cam-tools"></div></div>
+<div id="cam" hidden><video id="vid" playsinline muted></video><canvas id="pv"></canvas><div id="frame"></div><button id="cam-x" aria-label="Tutup kamera">✕</button><p id="cam-p">Arahkan kamera ke barcode</p><div id="cam-tools"></div></div>
 <div id="out" hidden><p>Salin data ini (dipisah koma) lalu tempel di komputer, atau ketuk Bagikan untuk mengirimnya sebagai file TXT.</p><textarea id="out-t" readonly></textarea><button id="out-c">Salin</button><button id="out-s">Bagikan</button><button id="out-x">Tutup</button></div>
 <input id="shot-in" type="file" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true" style="position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0">
 <div id="toast" role="status"></div>
@@ -274,7 +277,7 @@ function dec128(w,i0){
   for(let n=0;n<48;n++){
     const d=sym(w,a,0,105,6),sp=sym(w,a,106,106,7);
     if(sp&&sp[1]<2.6&&(!d||sp[1]<d[1])){
-      if(vals.length<3)return null;
+      if(vals.length<5)return null;
       const chk=vals[vals.length-1],body=vals.slice(0,-1);
       let sum=body[0];for(let i=1;i<body.length;i++)sum+=body[i]*i;
       if(sum%103!==chk)return null;
@@ -284,7 +287,7 @@ function dec128(w,i0){
         if(set==='C'){if(v<100)out+=(v<10?'0':'')+v;else if(v===100)set='B';else if(v===101)set='A'}
         else{if(v<96)out+=(set==='A'&&v>=64)?String.fromCharCode(v-64):String.fromCharCode(32+v);else if(v===99)set='C';else if(v===100&&set==='A')set='B';else if(v===101&&set==='B')set='A'}
       }
-      return out.replace(/[\x00-\x1f]/g,'')||null;
+      out=out.replace(/[\x00-\x1f]/g,'');return out.length>=3?out:null;
     }
     if(!d||d[1]>2.4)return null;
     vals.push(d[0]);a+=6;
@@ -319,12 +322,12 @@ function scanRows(g,W,H,y0,y1,step){
 }
 
 function grayOf(cx,x,y,w,h){const d=cx.getImageData(x,y,w,h).data,g=new Uint8Array(w*h);for(let i=0,j=0;i<g.length;i++,j+=4)g[i]=(d[j]*77+d[j+1]*150+d[j+2]*29)>>8;return g}
-const zxFmt=()=>{const F=ZXing.BarcodeFormat;return [F.CODE_128]};
+const zxFmt=()=>{const F=ZXing.BarcodeFormat;return [F.CODE_128,F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E,F.CODE_39,F.ITF,F.CODABAR]};
 function zxCanvas(cv){
   if(!window.ZXing)return null;
   const h=new Map();h.set(ZXing.DecodeHintType.TRY_HARDER,true);h.set(ZXing.DecodeHintType.POSSIBLE_FORMATS,zxFmt());
   for(const B of [ZXing.HybridBinarizer,ZXing.GlobalHistogramBinarizer]){
-    try{const r=new ZXing.MultiFormatReader();r.setHints(h);const bb=new ZXing.BinaryBitmap(new B(new ZXing.HTMLCanvasElementLuminanceSource(cv)));return r.decode(bb).getText()}catch(_){}
+    try{const r=new ZXing.MultiFormatReader();r.setHints(h);const bb=new ZXing.BinaryBitmap(new B(new ZXing.HTMLCanvasElementLuminanceSource(cv)));const res=r.decode(bb);zxCanvas.fmt=res.getBarcodeFormat();return res.getText()}catch(_){}
   }
   return null;
 }
@@ -336,10 +339,24 @@ function deliver(id,v){v=clean(v);
   if(id==='s-code')$('#s-qty').focus();else if(id==='r-code')addRec();else if(id==='s-shelf')$('#s-code').focus();else if(id==='r-shelf')$('#r-code').focus();
 }
 const HI='BarcodeDetector' in window;let idle=null;
-function mkDet(){if(!('BarcodeDetector' in window))return null;try{return new BarcodeDetector({formats:['code_128']})}catch(_){try{return new BarcodeDetector()}catch(__){return null}}}
+const IOS=/iP(hone|ad|od)/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+let pvRun=false,pvN=0;const pvx=$('#pv').getContext('2d');
+function pvLoop(){
+  if(!pvRun)return;
+  const v=$('#vid'),cv=$('#pv');
+  if((pvN++&1)===0&&v.readyState>=2&&v.videoWidth){
+    const dpr=Math.min(window.devicePixelRatio||1,2),pw=Math.round(cv.clientWidth*dpr),ph=Math.round(cv.clientHeight*dpr);
+    if(pw>0&&ph>0){if(cv.width!==pw||cv.height!==ph){cv.width=pw;cv.height=ph}
+      const vw=v.videoWidth,vh=v.videoHeight,k=Math.max(pw/vw,ph/vh),dw=vw*k,dh=vh*k;pvx.drawImage(v,(pw-dw)/2,(ph-dh)/2,dw,dh)}
+  }
+  requestAnimationFrame(pvLoop);
+}
+function startPv(){if(pvRun)return;pvRun=true;pvLoop()}
+function mkDet(){if(!('BarcodeDetector' in window))return null;try{return new BarcodeDetector()}catch(_){return null}}
+function pickBar(r){if(!r||!r.length)return null;return r.find(x=>x.format==='code_128')||r[0]}
 function stopStream(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;try{$('#vid').srcObject=null}catch(_){}}
 function closeCam(){
-  running=false;clearTimeout(tm);
+  running=false;pvRun=false;clearTimeout(tm);
   $('#vid').classList.remove('ready');try{$('#vid').pause()}catch(_){}
   $('#cam').hidden=true;$('#cam-tools').textContent='';
   clearTimeout(idle);idle=setTimeout(stopStream,25000);
@@ -349,28 +366,41 @@ function loop(id){
   const v=$('#vid'),det=mkDet();
   const cv=document.createElement('canvas'),cx=cv.getContext('2d',{willReadFrequently:true});
   const cv2=document.createElement('canvas'),cx2=cv2.getContext('2d',{willReadFrequently:true});
-  let n=0,m=0,slow=0;
+  const cv3=document.createElement('canvas'),cx3=cv3.getContext('2d');
+  let c=0,slow=0,pend='',pendN=0,pendT=0;
+  const confirm=(val,need)=>{const now=performance.now();if(val===pend&&now-pendT<1200)pendN++;else{pend=val;pendN=1}pendT=now;return pendN>=need?val:null};
   const step=async()=>{
     if(!running||target!==id)return;
-    let text=null;const t0=performance.now();
+    let text=null,nonc=null;const t0=performance.now();
     try{
       if(v.readyState>=2&&v.videoWidth){
-        /* 1) pembaca bawaan browser: cepat, memakai resolusi penuh */
-        if(det){try{const r=await det.detect(v);const h=r.find(x=>!x.format||x.format==='code_128');if(h)text=h.rawValue}catch(_){}}
-        /* 2) pembaca cadangan hanya pada pita bingkai, resolusi asli; dijarangkan bila HP lambat */
-        if(!text&&(slow<2||m%3===0)){
-          const VW=v.videoWidth,VH=v.videoHeight,sy=VH*0.3,sh=VH*0.34,W=Math.min(VW,2560),sc=W/VW,hb=Math.round(sh*sc);
+        c++;
+        const VW=v.videoWidth,VH=v.videoHeight,sy=VH*0.3,sh=VH*0.34,W=Math.min(VW,2560),hb=Math.round(sh*(W/VW));
+        /* 1) pembaca bawaan browser (Android): cepat, resolusi penuh */
+        if(det){try{const r=await det.detect(v);const h=pickBar(r);if(h){if(h.format==='code_128')text=h.rawValue;else nonc=h.rawValue}}catch(_){}}
+        if(!text){
           cv.width=W;cv.height=hb;cx.drawImage(v,0,sy,VW,sh,0,0,W,hb);
-          text=scanRows(grayOf(cx,0,0,W,hb),W,hb,0,hb,3);
-          if(!text&&VW<1600&&m%3===1){const k=2,W2=Math.round(VW*k),H2=Math.round(sh*k);cv2.width=W2;cv2.height=H2;cx2.imageSmoothingQuality='high';cx2.drawImage(v,0,sy,VW,sh,0,0,W2,H2);text=scanRows(grayOf(cx2,0,0,W2,H2),W2,H2,0,H2,3)}
-          if(!text&&window.ZXing&&n++%4===3)text=zxCanvas(cv);
+          /* 2) pembaca Code 128 bawaan aplikasi, hanya pada pita bingkai */
+          if(slow<2||c%3===0){
+            const t1=performance.now();
+            const r1=scanRows(grayOf(cx,0,0,W,hb),W,hb,0,hb,3);
+            if(r1)text=(r1.length>=6)?r1:confirm(r1,2);
+            if(!text&&VW<1600&&c%3===1){const k=2,W2=Math.round(VW*k),H2=Math.round(sh*k);cv2.width=W2;cv2.height=H2;cx2.imageSmoothingQuality='high';cx2.drawImage(v,0,sy,VW,sh,0,0,W2,H2);const r2=scanRows(grayOf(cx2,0,0,W2,H2),W2,H2,0,H2,3);if(r2)text=(r2.length>=6)?r2:confirm(r2,2)}
+            const d=performance.now()-t1;slow=d>90?Math.min(slow+1,4):Math.max(slow-1,0);
+          }
+          /* 3) ZXing semua jenis: lebih jarang, pada gambar yang diperkecil */
+          if(!text&&window.ZXing&&c%(det?4:3)===0){
+            const zw=Math.min(W,1280),zh=Math.round(hb*zw/W);cv3.width=zw;cv3.height=zh;cx3.drawImage(cv,0,0,W,hb,0,0,zw,zh);
+            const zt=zxCanvas(cv3);if(zt)text=(zxCanvas.fmt===ZXing.BarcodeFormat.CODE_128&&zt.length>=6)?zt:confirm(zt,3);
+          }
+          if(!text&&nonc)text=confirm(nonc,3);
         }
-        m++;
       }
     }catch(_){}
-    const dt=performance.now()-t0;slow=dt>120?Math.min(slow+1,5):Math.max(slow-1,0);
+    if(text){const t=clean(text);if(t.length<4)text=null}
     if(text&&running){closeCam();deliver(id,text);return}
-    tm=setTimeout(step,dt>150?60:20);
+    const dt=performance.now()-t0;
+    tm=setTimeout(step,dt>150?40:10);
   };
   step();
 }
@@ -386,10 +416,19 @@ function setupTools(s){
     const i=zs.includes(2)?zs.indexOf(2):zs.length-1;zp=bs[i].onclick();
   }
   if(c.torch){let on=false;mk('\u{1F4A1}',async b=>{on=!on;try{await tr.applyConstraints({advanced:[{torch:on}]});b.classList.toggle('on',on)}catch(_){on=!on}})}
-  $('#vid').onclick=async()=>{try{if(c.focusMode&&c.focusMode.includes('single-shot')){await tr.applyConstraints({advanced:[{focusMode:'single-shot'}]});setTimeout(()=>{if(c.focusMode.includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{})},1200)}}catch(_){}};
+  $('#pv').onclick=$('#vid').onclick=async()=>{try{if(c.focusMode&&c.focusMode.includes('single-shot')){await tr.applyConstraints({advanced:[{focusMode:'single-shot'}]});setTimeout(()=>{if(c.focusMode.includes('continuous'))tr.applyConstraints({advanced:[{focusMode:'continuous'}]}).catch(()=>{})},1200)}}catch(_){}};
   return zp;
 }
-function reveal(){const v=$('#vid'),go=()=>v.classList.add('ready');try{if(v.requestVideoFrameCallback){v.requestVideoFrameCallback(()=>v.requestVideoFrameCallback(go))}else setTimeout(go,300)}catch(_){go()}setTimeout(go,1200)}
+function fitVideo(){
+  if($('#cam').classList.contains('ios'))return;
+  const v=$('#vid'),vw=v.videoWidth,vh=v.videoHeight;if(!vw||!vh)return;
+  const c=$('#cam'),cw=c.clientWidth||innerWidth,ch=c.clientHeight||innerHeight,k=Math.max(cw/vw,ch/vh),st=v.style;
+  st.position='absolute';st.inset='auto';st.left='50%';st.top='50%';st.maxWidth='none';st.maxHeight='none';
+  st.width=Math.ceil(vw*k)+'px';st.height=Math.ceil(vh*k)+'px';st.transform='translate(-50%,-50%)';st.objectFit='cover';
+}
+['loadedmetadata','resize','playing'].forEach(e=>$('#vid').addEventListener(e,fitVideo));
+addEventListener('resize',fitVideo);addEventListener('orientationchange',()=>setTimeout(fitVideo,250));
+function reveal(){const v=$('#vid'),go=()=>{fitVideo();v.classList.add('ready')};try{if(v.requestVideoFrameCallback){v.requestVideoFrameCallback(()=>v.requestVideoFrameCallback(go))}else setTimeout(go,300)}catch(_){go()}setTimeout(go,1200)}
 async function scan(id){
   target=id;clearTimeout(idle);const cam=$('#cam'),v=$('#vid'),p=$('#cam-p');
   cam.hidden=false;v.classList.remove('ready');v.hidden=false;$('#frame').hidden=false;p.textContent='Arahkan kamera ke barcode';
@@ -402,7 +441,7 @@ async function scan(id){
     p.textContent='Kamera tidak bisa dibuka. Izinkan akses kamera untuk situs ini di pengaturan browser, atau tutup lalu ketik manual.';return;
   }
   if(cam.hidden){if(s!==stream)s.getTracks().forEach(t=>t.stop());return}
-  stream=s;v.srcObject=s;try{await v.play()}catch(e){}
+  stream=s;v.srcObject=s;try{await v.play()}catch(e){}if(IOS){cam.classList.add('ios');startPv()}else cam.classList.remove('ios');fitVideo();let fc=0;const fi=setInterval(()=>{fitVideo();if(++fc>16||$('#cam').hidden)clearInterval(fi)},250);
   try{const tr=s.getVideoTracks()[0],c=tr.getCapabilities?tr.getCapabilities():{};
     if(c.focusMode&&c.focusMode.includes('continuous'))await tr.applyConstraints({advanced:[{focusMode:'continuous'}]})}catch(_){}
   const zp=setupTools(s);running=true;loop(id);Promise.resolve(zp).catch(()=>{}).then(reveal);
@@ -429,7 +468,7 @@ async function readPhoto(file){
   const tries=async(sx,sy,sw,sh,outW)=>{
     const sc=outW/sw;cv.width=Math.round(sw*sc);cv.height=Math.round(sh*sc);
     cx.drawImage(bm,sx,sy,sw,sh,0,0,cv.width,cv.height);
-    if(det){try{const r=await det.detect(cv);const h=r.find(x=>!x.format||x.format==='code_128');if(h)return h.rawValue}catch(_){}}
+    if(det){try{const r=await det.detect(cv);const h=pickBar(r);if(h)return h.rawValue}catch(_){}}
     return zxCanvas(cv);
   };
   let t=await tries(0,0,W0,H0,Math.min(W0,1600));if(t)return t;
